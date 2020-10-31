@@ -1,0 +1,103 @@
+#!/bin/bash
+
+# import wg-quick functions
+eval "$(sed -e '/function override insertion point/q' "$1")"
+shift
+
+wgnn_hook() {
+    [ $# -gt 1 ] || return 0
+    echo "${1}() {"
+    shift
+    printf '    %s\n' "${@//%i/\$wgnn_iface}"
+    echo '}'
+}
+
+wgnn_addr() {
+    [ $# -gt 0 ] || return 0
+    echo "wg_addr() {"
+    printf "    wg_ip_addr '%s'\n" "$@"
+    echo '}'
+}
+
+wgnn_var() {
+    [ -n "$2" ] || return 0
+    echo "${1}='${2}'"
+}
+
+wgnn_hooks() {
+    wgnn_hook wg_pre_up "${PRE_UP[@]}"
+    wgnn_addr "${ADDRESSES[@]}"
+    wgnn_var veth_addr "$1"
+    wgnn_var vpeer_addr "$2"
+    wgnn_var wg_mtu "$MTU"
+    wgnn_var wg_table "$TABLE"
+    wgnn_hook wg_post_up "${POST_UP[@]}"
+    wgnn_hook wg_pre_down "${PRE_DOWN[@]}"
+    wgnn_hook wg_post_down "${POST_DOWN[@]}"
+}
+
+wgnn_dns() (
+    cmd() {
+        "$@"
+    }
+    resolvconf() {
+        cat
+    }
+    set_dns
+)
+
+wgnn_parse() (
+    parse_options "$1"
+    echo -n "$WG_CONFIG" > "${2}/wg.conf"
+    wgnn_hooks "$3" "$4" > "${2}/hooks.sh"
+    wgnn_dns > "${2}/resolv.conf"
+    echo "${4%/*}" > "${2}/host"
+)
+
+# integer -> ip4 address
+wgnn_ip4() {
+    local parts result
+    mapfile -t parts < <(printf '%08x\n' "$1" | fold -w2)
+    result="$(printf '.%d' "${parts[@]/#/0x}")"
+    echo "${result:1}"
+}
+
+main() {
+    local subnet enabled vpn addr mask last config outdir veth_addr vpeer_addr
+    [ $# -ge 2 ] || die 'required arguments: cfgdir outdir'
+
+    . "${1}/defaults"
+
+    mkdir -p "$2"
+    for vpn in "${enabled[@]}"; do
+        echo "$vpn"
+    done > "${2}/enabled"
+
+    addr="0x$(IFS=.; printf '%02x' ${subnet%/*})"
+    addr="$((addr))"
+    subnet="${subnet#*/}"
+
+    mask="$((((1 << 32) - 1) >> subnet))"
+    [ "$((addr & mask))" -eq 0 ] || die 'Nonzero subnet bits'
+    last="$((addr + mask))"
+
+    for config in "$1"/*.conf; do
+        outdir="$(basename "$config")"
+        outdir="${2}/${outdir%.conf}"
+
+        # avoid .0 and .255 addresses
+        [ "$((addr & 0xff))" -le 252 ] || addr="$((addr + 4))"
+        [ "$((addr & 0xff))" -ge 2 ] || addr="$((addr + 2))"
+        [ "$addr" -lt "$last" ] || die 'Subnet not big enough'
+
+        # use adjacent addresses to avoid extra route config
+        veth_addr="$(wgnn_ip4 "$addr")/31"
+        vpeer_addr="$(wgnn_ip4 "$((addr + 1))")/31"
+
+        mkdir -p "$outdir"
+        wgnn_parse "$config" "$outdir" "$veth_addr" "$vpeer_addr"
+        addr="$((addr + 2))"
+    done
+}
+
+main "$@"
