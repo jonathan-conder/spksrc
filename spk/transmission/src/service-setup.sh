@@ -1,13 +1,8 @@
 # Add python to path
 # This gives tranmission the power to execute python scripts on completion (like TorrentToMedia).
-PYTHON_DIR="/usr/local/python"
-PATH="${SYNOPKG_PKGDEST}/bin:${PYTHON_DIR}/bin:${PATH}"
 CFG_FILE="${SYNOPKG_PKGDEST}/var/settings.json"
-TRANSMISSION="${SYNOPKG_PKGDEST}/bin/transmission-daemon"
 
 GROUP="sc-download"
-
-SERVICE_COMMAND="${TRANSMISSION} -g ${SYNOPKG_PKGDEST}/var/ -x ${PID_FILE} -e ${LOG_FILE}"
 
 service_preinst ()
 {
@@ -56,14 +51,7 @@ service_postinst ()
             set_syno_permissions "${wizard_incomplete_dir}" "${GROUP}"
         fi
     fi
-
-    # Discard legacy obsolete busybox user account
-    BIN=${SYNOPKG_PKGDEST}/bin
-    $BIN/busybox --install $BIN >> ${INST_LOG}
-    $BIN/delgroup "${USER}" "users" >> ${INST_LOG}
-    $BIN/deluser "${USER}" >> ${INST_LOG}
 }
-
 
 service_postupgrade ()
 {
@@ -85,4 +73,15 @@ service_postupgrade ()
             set_syno_permissions "${WATCHED_DIR}" "${GROUP}"
         fi
     fi
+}
+
+service_prestart() {
+    local binary="${SYNOPKG_PKGDEST}/bin/${SYNOPKG_PKGNAME}-daemon"
+    local command="${binary} -g ${SYNOPKG_PKGDEST}/var -x ${PID_FILE} -e ${LOG_FILE}"
+    local netns="$(cat "${SYNOPKG_PKGDEST}/etc/${SYNOPKG_PKGNAME}/netns")"
+    [ -n "$SERVICE_SHELL" ] || SERVICE_SHELL=/bin/sh
+
+    ip netns exec "$netns" \
+        su "$EFF_USER" -s "$SERVICE_SHELL" -c \
+        "exec ${command}" >> "$LOG_FILE" 2>&1
 }

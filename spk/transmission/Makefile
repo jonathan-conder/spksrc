@@ -3,7 +3,8 @@ SPK_VERS = 3.00
 SPK_REV = 19
 SPK_ICON = src/transmission.png
 
-DEPENDS = cross/busybox cross/$(SPK_NAME)
+DEPENDS = cross/$(SPK_NAME)
+SPK_DEPENDS = wireguard-netns
 
 MAINTAINER = SynoCommunity
 DESCRIPTION = Transmission is an easy and fast BitTorrent client. You can control it remotely with its web interface or dedicated applications.
@@ -19,6 +20,7 @@ LICENSE  = GPLv2/GPLv3
 
 WIZARDS_DIR = src/wizard/
 
+CONF_DIR = src/conf
 SERVICE_USER = auto
 SERVICE_WIZARD_SHARE = wizard_download_dir
 SERVICE_SETUP = src/service-setup.sh
@@ -30,14 +32,13 @@ ADMIN_PORT = $(SERVICE_PORT)
 
 POST_STRIP_TARGET = transmission_extra_install
 
-BUSYBOX_CONFIG = usrmng
-ENV += BUSYBOX_CONFIG="$(BUSYBOX_CONFIG)"
-
 
 include ../../mk/spksrc.spk.mk
 
 
 .PHONY: transmission_extra_install
 transmission_extra_install:
+	install -m 755 -d $(STAGING_DIR)/etc/$(SPK_NAME)
+	install -m 644 src/netns $(STAGING_DIR)/etc/$(SPK_NAME)/netns
 	install -m 755 -d $(STAGING_DIR)/var
 	install -m 644 src/settings.json $(STAGING_DIR)/var/settings.json
