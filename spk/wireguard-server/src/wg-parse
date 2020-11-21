@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# import wg-quick functions
+eval "$(sed -e '/function override insertion point/q' "$1")"
+shift
+
+wgnn_hook() {
+    [ $# -gt 1 ] || return 0
+    echo "${1}() {"
+    shift
+    printf '    %s\n' "${@//%i/\$wgnn_iface}"
+    echo '}'
+}
+
+wgnn_addr() {
+    [ $# -gt 0 ] || return 0
+    echo "wg_addr() {"
+    printf "    wg_ip_addr '%s'\n" "$@"
+    echo '}'
+}
+
+wgnn_var() {
+    [ -n "$2" ] || return 0
+    echo "${1}='${2}'"
+}
+
+wgnn_hooks() {
+    wgnn_hook wg_pre_up "${PRE_UP[@]}"
+    wgnn_addr "${ADDRESSES[@]}"
+    wgnn_var wg_mtu "$MTU"
+    wgnn_var wg_table "$TABLE"
+    wgnn_hook wg_post_up "${POST_UP[@]}"
+    wgnn_hook wg_pre_down "${PRE_DOWN[@]}"
+    wgnn_hook wg_post_down "${POST_DOWN[@]}"
+}
+
+main() (
+    [ $# -ge 2 ] || die 'required arguments: cfg outdir'
+    parse_options "$1"
+    mkdir -p "$2"
+    echo -n "$WG_CONFIG" > "${2}/wg.conf"
+    wgnn_hooks > "${2}/hooks.sh"
+)
+
+main "$@"
